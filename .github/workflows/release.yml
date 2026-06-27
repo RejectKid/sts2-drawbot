@@ -1,0 +1,65 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-release:
+    name: Build release packages
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Validate
+        run: |
+          python -m pip install -r requirements.txt
+          python -m py_compile src/sts2_drawbot.py src/sts2_gui.py
+          python src/sts2_drawbot.py --prompt "simple star"
+
+      - name: Stage packages
+        shell: pwsh
+        run: |
+          $platforms = @(
+            @{ Name = "STS2Drawbot-win-x64"; Scripts = @("install.ps1", "run.ps1", "run-gui.ps1") },
+            @{ Name = "STS2Drawbot-linux-x64"; Scripts = @("install.sh", "run.sh", "run-gui.sh") },
+            @{ Name = "STS2Drawbot-osx-universal"; Scripts = @("install.sh", "run.sh", "run-gui.sh") }
+          )
+
+          New-Item -ItemType Directory -Force artifacts | Out-Null
+          foreach ($platform in $platforms) {
+            $root = Join-Path "artifacts" $platform.Name
+            New-Item -ItemType Directory -Force $root | Out-Null
+            Copy-Item README.md, LICENSE, requirements.txt -Destination $root
+            Copy-Item src -Destination $root -Recurse
+            foreach ($script in $platform.Scripts) {
+              Copy-Item $script -Destination $root
+            }
+          }
+
+      - name: Zip packages
+        shell: pwsh
+        run: |
+          Compress-Archive -Path artifacts/STS2Drawbot-win-x64/* -DestinationPath STS2Drawbot-win-x64.zip
+          Compress-Archive -Path artifacts/STS2Drawbot-linux-x64/* -DestinationPath STS2Drawbot-linux-x64.zip
+          Compress-Archive -Path artifacts/STS2Drawbot-osx-universal/* -DestinationPath STS2Drawbot-osx-universal.zip
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            STS2Drawbot-win-x64.zip
+            STS2Drawbot-linux-x64.zip
+            STS2Drawbot-osx-universal.zip
+          generate_release_notes: true

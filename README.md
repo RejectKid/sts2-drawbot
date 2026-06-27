@@ -152,6 +152,23 @@ $env:GOOGLE_CSE_ID = "..."
 
 Without those keys, Openverse, DuckDuckGo Images, and Wikimedia Commons are still used.
 
+## Releases
+
+Releases are generated automatically from version tags, matching the workflow style used by `RejectKid/copy-pasta`:
+
+```powershell
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+The release workflow builds ZIP packages for:
+
+- Windows x64
+- Linux x64
+- macOS universal
+
+GitHub generates the release notes automatically from merged changes.
+
 ## Notes
 
 This is mouse automation for a game UI. Keep the game focused while drawing, and keep your hand near `Esc` until you trust the selected preview. Very dense source images may still need a simpler prompt, a cleaner line-art source, or lower `--max-strokes`.
