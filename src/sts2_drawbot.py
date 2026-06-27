@@ -4,6 +4,7 @@ import argparse
 import dataclasses
 import json
 import os
+import platform
 import re
 import sys
 import time
@@ -43,40 +44,46 @@ STOP_QUERY_WORDS = {
 }
 
 
-def ensure_runtime_imports():
+def project_root() -> Path:
+    return Path(__file__).resolve().parents[1]
+
+
+def is_windows() -> bool:
+    return platform.system() == "Windows"
+
+
+def ensure_runtime_imports(include_automation: bool = False):
     missing: list[str] = []
     try:
         import PIL  # noqa: F401
     except Exception:
         missing.append("pillow")
     try:
-        import pyautogui  # noqa: F401
-    except Exception:
-        missing.append("pyautogui")
-    try:
         import requests  # noqa: F401
     except Exception:
         missing.append("requests")
     try:
-        import win32gui  # noqa: F401
-    except Exception:
-        missing.append("pywin32")
-    try:
-        import psutil  # noqa: F401
-    except Exception:
-        missing.append("psutil")
-    try:
-        import cairosvg  # noqa: F401
-    except Exception:
-        missing.append("cairosvg")
-    try:
         import ddgs  # noqa: F401
     except Exception:
         missing.append("ddgs")
+    if include_automation:
+        try:
+            import pyautogui  # noqa: F401
+        except Exception:
+            missing.append("pyautogui")
+        if is_windows():
+            try:
+                import win32gui  # noqa: F401
+            except Exception:
+                missing.append("pywin32")
+            try:
+                import psutil  # noqa: F401
+            except Exception:
+                missing.append("psutil")
 
     if missing:
         print("Missing dependencies:", ", ".join(missing), file=sys.stderr)
-        print("Run install.ps1 from E:\\projects\\sts2-drawbot first.", file=sys.stderr)
+        print("Run the install command for your platform first.", file=sys.stderr)
         raise SystemExit(2)
 
 
@@ -94,28 +101,52 @@ def fetch_wikimedia_image(prompt: str, out_dir: Path) -> Path:
     session = requests.Session()
     session.headers.update({"User-Agent": "sts2-drawbot/1.0"})
 
+    candidates = collect_search_candidates(session, prompt)
+
+    if not candidates:
+        raise RuntimeError(f"No downloadable web image found for {prompt!r}. Try --image or --url instead.")
+
+    downloaded = download_ranked_candidates(session, prompt, candidates, out_dir, max_downloads=8, max_candidates=40)
+    if downloaded:
+        _, target, title, mime, image_url = downloaded[0]
+        print(f"Selected: {title}")
+        print(f"Mime: {mime}")
+        print(f"Source: {image_url}")
+        return target
+
+    raise RuntimeError(f"Could not download any search result for {prompt!r}.")
+
+
+def collect_search_candidates(session, prompt: str) -> list[tuple[int, str, str, str]]:
     base_query = prompt.strip()
     terms = prompt_terms(base_query)
     candidates = search_openverse_images(session, base_query, terms)
     candidates.extend(search_ddg_images(base_query, terms))
     candidates.extend(search_google_custom_images(session, base_query, terms))
     candidates.extend(search_commons_images(session, base_query, terms))
-
-    if not candidates:
-        raise RuntimeError(f"No downloadable web image found for {prompt!r}. Try --image or --url instead.")
-
     candidates.sort(reverse=True, key=lambda c: c[0])
+    return candidates
+
+
+def download_ranked_candidates(
+    session,
+    prompt: str,
+    candidates: list[tuple[int, str, str, str]],
+    out_dir: Path,
+    max_downloads: int = 8,
+    max_candidates: int = 40,
+) -> list[tuple[float, Path, str, str, str]]:
     last_error: Exception | None = None
     skipped = 0
     downloaded: list[tuple[float, Path, str, str, str]] = []
-    for candidate_index, (search_score, title, image_url, mime) in enumerate(candidates[:40]):
+    for candidate_index, (search_score, title, image_url, mime) in enumerate(candidates[:max_candidates]):
         try:
             target, content_type = download_candidate_image(session, prompt, image_url, out_dir, candidate_index)
             visual_score = score_downloaded_image(target)
             total_score = search_score + visual_score
             downloaded.append((total_score, target, title, mime or content_type, image_url))
             print(f"Candidate: {title} score={total_score:.1f}")
-            if len(downloaded) >= 8:
+            if len(downloaded) >= max_downloads:
                 break
         except Exception as exc:
             skipped += 1
@@ -124,11 +155,7 @@ def fetch_wikimedia_image(prompt: str, out_dir: Path) -> Path:
 
     if downloaded:
         downloaded.sort(reverse=True, key=lambda c: c[0])
-        _, target, title, mime, image_url = downloaded[0]
-        print(f"Selected: {title}")
-        print(f"Mime: {mime}")
-        print(f"Source: {image_url}")
-        return target
+        return downloaded
 
     raise RuntimeError(f"Could not download any search result for {prompt!r} after skipping {skipped} blocked results: {last_error}")
 
@@ -614,7 +641,13 @@ def rasterize_if_needed(image_path: Path) -> Path:
     if image_path.suffix.lower() != ".svg":
         return image_path
 
-    import cairosvg
+    try:
+        import cairosvg
+    except Exception as exc:
+        raise RuntimeError(
+            "SVG images require the optional CairoSVG/native Cairo stack. "
+            "Try another candidate, or install CairoSVG with its platform Cairo dependency."
+        ) from exc
 
     raster_path = image_path.with_suffix(".png")
     cairosvg.svg2png(url=str(image_path), write_to=str(raster_path), output_width=1000, output_height=1000)
@@ -631,6 +664,8 @@ def parse_area(value: str) -> Rect:
 
 
 def find_game_window(process_name: str, title_part: str) -> Rect:
+    if not is_windows():
+        raise RuntimeError("Slay the Spire 2 window targeting is currently supported on Windows only.")
     import psutil
     import win32gui
     import win32process
@@ -1340,7 +1375,7 @@ def draw_strokes_win32(
 
 
 def print_mouse_pos() -> None:
-    ensure_runtime_imports()
+    ensure_runtime_imports(include_automation=True)
     import pyautogui
 
     print("Move the mouse where you want to measure. Press Ctrl+C to stop.")
@@ -1408,7 +1443,9 @@ def main() -> int:
     if not args.image and not args.prompt and not args.url:
         parser.error('Use --prompt "what to draw". Add --draw when you want to draw in-game.')
 
-    ensure_runtime_imports()
+    ensure_runtime_imports(include_automation=args.draw)
+    if args.draw and not is_windows():
+        parser.error("--draw is currently supported on Windows only. Preview/search still work cross-platform.")
 
     root = Path(__file__).resolve().parents[1]
     previews_dir = root / "previews"

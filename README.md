@@ -17,15 +17,26 @@ It is built for quick in-game doodles: preview first, then draw only when you ad
 
 ## Requirements
 
-- Windows
 - Python 3.11 or newer
-- Slay the Spire 2 running in a normal window
+- Tkinter support in your Python install
+- Windows for drawing directly into Slay the Spire 2
+
+The GUI search and preview workflow is cross-platform. The game-window targeting and right-click drawing automation are currently Windows-only.
 
 ## Install
+
+Windows:
 
 ```powershell
 cd E:\projects\sts2-drawbot
 .\install.ps1
+```
+
+macOS/Linux:
+
+```sh
+cd sts2-drawbot
+./install.sh
 ```
 
 ## Preview
@@ -36,12 +47,57 @@ cd E:\projects\sts2-drawbot
 
 This writes a preview image to `previews\` and does not move the mouse.
 
+## GUI
+
+For candidate browsing and easier previewing, launch the desktop UI:
+
+Windows:
+
+```powershell
+.\run-gui.ps1
+```
+
+macOS/Linux:
+
+```sh
+./run-gui.sh
+```
+
+The GUI lets you:
+
+- search from a prompt
+- inspect downloaded candidates
+- compare the source image and sketch preview side by side
+- open a local image
+- choose trace mode
+- draw the selected preview into Slay the Spire 2
+
+On non-Windows systems, the Draw button is disabled and the GUI acts as a candidate/preview workbench.
+
+### Screenshots
+
+Initial GUI:
+
+![STS2 Drawbot initial GUI](docs/screenshots/gui-initial.png)
+
+Candidate selected with sketch preview:
+
+![STS2 Drawbot preview GUI](docs/screenshots/gui-star-preview.png)
+
 ## Draw
 
 Open the Slay the Spire 2 map drawing UI first, then run:
 
+Windows:
+
 ```powershell
 .\run.ps1 --prompt "simple poop emoji" --draw
+```
+
+macOS/Linux can use the CLI for preview/search:
+
+```sh
+./run.sh --prompt "simple poop emoji"
 ```
 
 When the countdown starts, move your mouse to where the first line should begin. The tool scales the full drawing into the safe map-paper area; if the mouse anchor would push part of the drawing off the paper, it clamps the drawing back inside the safe area.
@@ -95,6 +151,23 @@ $env:GOOGLE_CSE_ID = "..."
 ```
 
 Without those keys, Openverse, DuckDuckGo Images, and Wikimedia Commons are still used.
+
+## Releases
+
+Releases are generated automatically from version tags, matching the workflow style used by `RejectKid/copy-pasta`:
+
+```powershell
+git tag v0.2.0
+git push origin v0.2.0
+```
+
+The release workflow builds ZIP packages for:
+
+- Windows x64
+- Linux x64
+- macOS universal
+
+GitHub generates the release notes automatically from merged changes.
 
 ## Notes
 
