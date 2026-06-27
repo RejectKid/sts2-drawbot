@@ -19,9 +19,11 @@ It is built for quick in-game doodles: preview first, then draw only when you ad
 
 - Python 3.11 or newer
 - Tkinter support in your Python install
-- Windows for drawing directly into Slay the Spire 2
+- A visible desktop session for mouse automation
 
-The GUI search and preview workflow is cross-platform. The game-window targeting and right-click drawing automation are currently Windows-only.
+The CLI search, preview, and drawing workflow is cross-platform. Windows can auto-target the Slay the Spire 2 window; macOS/Linux draw through PyAutoGUI and use either a safe screen canvas or a manually calibrated `--area`.
+
+The GUI search and preview workflow is cross-platform. The GUI Draw button is currently Windows-only.
 
 ## Install
 
@@ -94,15 +96,17 @@ Windows:
 .\run.ps1 --prompt "simple poop emoji" --draw
 ```
 
-macOS/Linux can use the CLI for preview/search:
+macOS/Linux:
 
 ```sh
-./run.sh --prompt "simple poop emoji"
+./run.sh --prompt "simple poop emoji" --draw
 ```
+
+On macOS/Linux, keep Slay the Spire 2 visible and move your mouse to the first line during the countdown. For best results, calibrate the map-paper area with `--mouse-pos`, then pass `--area X,Y,W,H`.
 
 When the countdown starts, move your mouse to where the first line should begin. The tool scales the full drawing into the safe map-paper area; if the mouse anchor would push part of the drawing off the paper, it clamps the drawing back inside the safe area.
 
-Press `Esc` to stop while drawing. Moving the mouse to the top-left corner of the screen also aborts.
+Press `Esc` to stop while drawing on Windows. On any platform, moving the mouse to the top-left corner of the screen aborts; Ctrl+C also stops from the terminal.
 
 ## Examples
 
@@ -137,7 +141,8 @@ Useful advanced options:
 - `--area X,Y,W,H`: manually set the safe drawing rectangle
 - `--fit-padding N`: keep more or less space from the safe-area edges
 - `--abort-key f9`: change the stop hotkey
-- `--center-in-window`: center the drawing instead of starting at the mouse
+- `--input-backend pyautogui`: force the cross-platform mouse backend
+- `--center-in-window`: center the drawing in the target canvas instead of starting at the mouse
 - `--mode sketch`: force sketch extraction for shaded drawings
 - `--scale N` and `--max-strokes N`: tune detail and runtime
 
@@ -157,8 +162,8 @@ Without those keys, Openverse, DuckDuckGo Images, and Wikimedia Commons are stil
 Releases are generated automatically from version tags, matching the workflow style used by `RejectKid/copy-pasta`:
 
 ```powershell
-git tag 0.3.0
-git push origin 0.3.0
+git tag 0.4.0
+git push origin 0.4.0
 ```
 
 The release workflow builds ZIP packages for:

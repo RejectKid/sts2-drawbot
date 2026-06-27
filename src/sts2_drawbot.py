@@ -716,6 +716,20 @@ def default_canvas_for_window(window: Rect) -> Rect:
     )
 
 
+def default_canvas_for_screen() -> Rect:
+    import pyautogui
+
+    width, height = pyautogui.size()
+    margin_x = max(20, int(width * 0.08))
+    margin_y = max(20, int(height * 0.08))
+    return Rect(
+        margin_x,
+        margin_y,
+        max(1, width - margin_x * 2),
+        max(1, height - margin_y * 2),
+    )
+
+
 def image_to_strokes(
     image_path: Path,
     threshold: int,
@@ -1366,6 +1380,7 @@ def draw_strokes(
     abort_check = make_abort_checker(abort_key)
     stroke_list = list(strokes)
     transform = build_draw_transform(stroke_list, canvas, anchor_target, fit_padding)
+    backend = resolve_input_backend(backend)
     if backend == "win32":
         draw_strokes_win32(
             stroke_list,
@@ -1384,9 +1399,15 @@ def draw_strokes(
         )
 
 
-def make_abort_checker(abort_key: str):
-    import win32api
+def resolve_input_backend(backend: str) -> str:
+    if backend == "auto":
+        return "win32" if is_windows() else "pyautogui"
+    if backend == "win32" and not is_windows():
+        raise RuntimeError("--input-backend win32 is only available on Windows. Use --input-backend pyautogui.")
+    return backend
 
+
+def make_abort_checker(abort_key: str):
     key_codes = {
         "esc": 0x1B,
         "escape": 0x1B,
@@ -1399,6 +1420,19 @@ def make_abort_checker(abort_key: str):
     key_code = key_codes.get(abort_key.lower())
     if key_code is None:
         raise ValueError(f"Unsupported abort key: {abort_key}. Try esc, f8, f9, f10, f12, or pause.")
+
+    if not is_windows():
+        warned = False
+
+        def check() -> None:
+            nonlocal warned
+            if not warned:
+                print("Abort hotkeys are Windows-only; use Ctrl+C or move the mouse to the top-left corner to stop.")
+                warned = True
+
+        return check
+
+    import win32api
 
     def check() -> None:
         if win32api.GetAsyncKeyState(key_code) & 0x8000:
@@ -1508,7 +1542,7 @@ def build_parser(show_advanced: bool = False) -> argparse.ArgumentParser:
     parser.add_argument("--no-builtins", action="store_true", help=option_help("Do not auto-generate simple built-in shapes from prompts.", show_advanced))
     parser.add_argument("--preview-only", action="store_true", help=option_help("Only generate a preview; do not draw.", show_advanced))
     parser.add_argument("--dry-run", action="store_true", help=option_help("Resolve everything but skip mouse drawing.", show_advanced))
-    parser.add_argument("--draw", action="store_true", help="Actually send right-click drags to the target window.")
+    parser.add_argument("--draw", action="store_true", help="Actually send right-click drags to the target canvas.")
     parser.add_argument("--mouse-pos", action="store_true", help=option_help("Print live mouse coordinates for canvas calibration.", show_advanced))
     parser.add_argument("--area", type=parse_area, help=option_help("Screen-coordinate canvas rectangle: X,Y,W,H.", show_advanced))
     parser.add_argument("--window-title", default="Slay the Spire 2", help=option_help("Fallback target window title substring.", show_advanced))
@@ -1520,9 +1554,9 @@ def build_parser(show_advanced: bool = False) -> argparse.ArgumentParser:
     parser.add_argument("--max-strokes", type=int, default=1450, help=option_help("Maximum number of strokes to draw.", show_advanced))
     parser.add_argument("--speed", type=float, default=0.01, help=option_help("Seconds per right-drag segment.", show_advanced))
     parser.add_argument("--pause", type=float, default=0.01, help=option_help("Seconds between strokes.", show_advanced))
-    parser.add_argument("--input-backend", choices=["win32", "pyautogui"], default="win32", help=option_help("Mouse input backend.", show_advanced))
+    parser.add_argument("--input-backend", choices=["auto", "win32", "pyautogui"], default="auto", help=option_help("Mouse input backend.", show_advanced))
     parser.add_argument("--abort-key", default="esc", help=option_help("Hotkey to stop drawing: esc, f8, f9, f10, f12, or pause.", show_advanced))
-    parser.add_argument("--center-in-window", action="store_true", help=option_help("Use the old behavior: center the drawing in the target window instead of starting at the mouse.", show_advanced))
+    parser.add_argument("--center-in-window", action="store_true", help=option_help("Use the old behavior: center the drawing in the target canvas instead of starting at the mouse.", show_advanced))
     parser.add_argument("--fit-padding", type=int, default=35, help=option_help("Pixels to keep clear inside the safe drawing area.", show_advanced))
     parser.add_argument("--countdown", type=int, default=5, help=option_help("Countdown seconds before drawing.", show_advanced))
     return parser
@@ -1544,8 +1578,6 @@ def main() -> int:
         parser.error('Use --prompt "what to draw". Add --draw when you want to draw in-game.')
 
     ensure_runtime_imports(include_automation=args.draw)
-    if args.draw and not is_windows():
-        parser.error("--draw is currently supported on Windows only. Preview/search still work cross-platform.")
 
     root = Path(__file__).resolve().parents[1]
     previews_dir = root / "previews"
@@ -1592,14 +1624,28 @@ def main() -> int:
         print("Preview only. Re-run the same command with --draw when it looks good.")
         return 0
 
-    window = find_game_window(args.process, args.window_title)
-    canvas = args.area or default_canvas_for_window(window)
+    backend = resolve_input_backend(args.input_backend)
+    if is_windows():
+        if args.area:
+            canvas = args.area
+        else:
+            window = find_game_window(args.process, args.window_title)
+            canvas = default_canvas_for_window(window)
+    else:
+        if args.area:
+            canvas = args.area
+        else:
+            canvas = default_canvas_for_screen()
+            print("Non-Windows draw mode uses a safe screen canvas. Use --area X,Y,W,H for tighter game-window calibration.")
     print(f"Canvas: {canvas.x},{canvas.y} {canvas.w}x{canvas.h}")
     if args.center_in_window:
-        print("Drawing will be centered in the target window.")
+        print("Drawing will be centered in the target canvas.")
     else:
         print("Put your mouse where the first line should start.")
-    print(f"Press {args.abort_key.upper()} or move mouse to the top-left screen corner to abort.")
+    if is_windows():
+        print(f"Press {args.abort_key.upper()} or move mouse to the top-left screen corner to abort.")
+    else:
+        print("Use Ctrl+C or move mouse to the top-left screen corner to abort.")
     for i in range(args.countdown, 0, -1):
         print(f"Drawing in {i}...")
         time.sleep(1)
@@ -1622,7 +1668,7 @@ def main() -> int:
         canvas,
         speed=args.speed,
         pause=args.pause,
-        backend=args.input_backend,
+        backend=backend,
         abort_key=args.abort_key,
         anchor_target=anchor_target,
         fit_padding=args.fit_padding,
