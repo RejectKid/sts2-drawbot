@@ -745,19 +745,22 @@ def image_to_strokes(
         trace_kind = "sketch"
         print(f"Trace mode: sketch edges, threshold {threshold}")
     elif mode == "dark":
-        working = ImageOps.autocontrast(img)
+        working, threshold = build_dark_line_image(img, threshold)
         is_ink = lambda value: value <= threshold
         trace_kind = "dark"
+        print(f"Trace mode: dark lines, threshold {threshold}")
     else:
-        dark_count = sum(1 for value in img.getdata() if value <= threshold)
+        working, dark_threshold = build_dark_line_image(img, threshold)
+        working_values = image_values(working)
+        dark_count = sum(1 for value in working_values if value <= dark_threshold)
         dark_ratio = dark_count / max(1, img.width * img.height)
-        mid_count = sum(1 for value in img.getdata() if threshold < value < 235)
+        mid_count = sum(1 for value in working_values if dark_threshold < value < 235)
         mid_ratio = mid_count / max(1, img.width * img.height)
         if 0.002 <= dark_ratio <= 0.22 and mid_ratio < 0.22:
-            working = ImageOps.autocontrast(img)
+            threshold = dark_threshold
             is_ink = lambda value: value <= threshold
             trace_kind = "dark"
-            print("Trace mode: dark lines")
+            print(f"Trace mode: dark lines, threshold {threshold}")
         else:
             working, threshold = build_sketch_edge_image(img, threshold)
             is_ink = lambda value: value >= threshold
@@ -799,6 +802,8 @@ def image_to_strokes(
             if trace_kind == "sketch":
                 simplified = smooth_stroke(simplified, passes=2)
             elif trace_kind == "edges":
+                simplified = smooth_stroke(simplified, passes=1)
+            elif trace_kind == "dark":
                 simplified = smooth_stroke(simplified, passes=1)
             if len(simplified) >= 2:
                 strokes.append([Point(x, y) for x, y in simplified])
@@ -843,6 +848,61 @@ def crop_dark_frame(img):
     return img
 
 
+def build_dark_line_image(img, fallback_threshold: int):
+    from PIL import ImageFilter, ImageOps
+
+    working = ImageOps.autocontrast(img.filter(ImageFilter.UnsharpMask(radius=1.2, percent=130, threshold=3)))
+    threshold = adaptive_dark_threshold(working, fallback_threshold)
+    return working, threshold
+
+
+def adaptive_dark_threshold(img, fallback_threshold: int) -> int:
+    values = image_values(img)
+    if not values:
+        return fallback_threshold
+
+    light_ratio = sum(1 for value in values if value >= 238) / len(values)
+    very_dark_ratio = sum(1 for value in values if value <= fallback_threshold) / len(values)
+    if light_ratio < 0.55 or not (0.002 <= very_dark_ratio <= 0.18):
+        return fallback_threshold
+
+    otsu = otsu_threshold(values)
+    # Line drawings often contain gray antialias pixels around black ink. Keeping a bit above
+    # Otsu recovers those hairline details before thinning collapses the stroke back to center.
+    boosted = otsu + 18
+    return max(fallback_threshold, min(195, boosted))
+
+
+def otsu_threshold(values: list[int]) -> int:
+    histogram = [0] * 256
+    for value in values:
+        histogram[max(0, min(255, int(value)))] += 1
+
+    total = len(values)
+    weighted_total = sum(index * count for index, count in enumerate(histogram))
+    background_weight = 0
+    background_sum = 0
+    best_threshold = 0
+    best_variance = -1.0
+
+    for threshold, count in enumerate(histogram):
+        background_weight += count
+        if background_weight == 0:
+            continue
+        foreground_weight = total - background_weight
+        if foreground_weight == 0:
+            break
+        background_sum += threshold * count
+        background_mean = background_sum / background_weight
+        foreground_mean = (weighted_total - background_sum) / foreground_weight
+        variance = background_weight * foreground_weight * (background_mean - foreground_mean) ** 2
+        if variance > best_variance:
+            best_variance = variance
+            best_threshold = threshold
+
+    return best_threshold
+
+
 def build_sketch_edge_image(img, fallback_threshold: int):
     from PIL import ImageChops, ImageFilter, ImageOps
 
@@ -853,13 +913,20 @@ def build_sketch_edge_image(img, fallback_threshold: int):
         tonal.filter(ImageFilter.FIND_EDGES),
     )
     edges = ImageOps.autocontrast(edges.filter(ImageFilter.SMOOTH_MORE))
-    values = sorted(edges.getdata())
+    values = sorted(image_values(edges))
     if not values:
         return edges, fallback_threshold
     # Keep the strongest edge pixels. This behaves better on shaded portraits than a fixed threshold.
     index = int(len(values) * 0.855)
     threshold = max(54, min(180, values[index]))
     return edges, threshold
+
+
+def image_values(img) -> list[int]:
+    data_getter = getattr(img, "get_flattened_data", None)
+    if data_getter:
+        return list(data_getter())
+    return list(img.getdata())
 
 
 def smooth_stroke(points: list[tuple[int, int]], passes: int = 1) -> list[tuple[int, int]]:
@@ -1154,15 +1221,48 @@ def turn_cost(previous: tuple[int, int], current: tuple[int, int], following: tu
 
 
 def simplify_path(points: list[tuple[int, int]], min_distance: float) -> list[tuple[int, int]]:
-    simplified = [points[0]]
-    last = points[0]
-    for point in points[1:-1]:
-        if math.sqrt(distance_sq(last, point)) >= min_distance:
-            simplified.append(point)
-            last = point
-    if simplified[-1] != points[-1]:
-        simplified.append(points[-1])
-    return simplified
+    if len(points) <= 2:
+        return points
+    simplified = rdp_simplify(points, min_distance)
+    return simplified if len(simplified) >= 2 else [points[0], points[-1]]
+
+
+def rdp_simplify(points: list[tuple[int, int]], epsilon: float) -> list[tuple[int, int]]:
+    keep = {0, len(points) - 1}
+    stack = [(0, len(points) - 1)]
+
+    while stack:
+        start, end = stack.pop()
+        if end <= start + 1:
+            continue
+
+        a = points[start]
+        b = points[end]
+        farthest_index = None
+        farthest_distance = -1.0
+        for index in range(start + 1, end):
+            distance = perpendicular_distance(points[index], a, b)
+            if distance > farthest_distance:
+                farthest_distance = distance
+                farthest_index = index
+
+        if farthest_index is not None and farthest_distance > epsilon:
+            keep.add(farthest_index)
+            stack.append((start, farthest_index))
+            stack.append((farthest_index, end))
+
+    return [points[index] for index in sorted(keep)]
+
+
+def perpendicular_distance(point: tuple[int, int], start: tuple[int, int], end: tuple[int, int]) -> float:
+    if start == end:
+        return math.sqrt(distance_sq(point, start))
+    x, y = point
+    x1, y1 = start
+    x2, y2 = end
+    numerator = abs((y2 - y1) * x - (x2 - x1) * y + x2 * y1 - y2 * x1)
+    denominator = math.hypot(y2 - y1, x2 - x1)
+    return numerator / denominator
 
 
 def distance_sq(a: tuple[int, int], b: tuple[int, int]) -> int:
