@@ -63,10 +63,6 @@ def ensure_runtime_imports(include_automation: bool = False):
     except Exception:
         missing.append("requests")
     try:
-        import cairosvg  # noqa: F401
-    except Exception:
-        missing.append("cairosvg")
-    try:
         import ddgs  # noqa: F401
     except Exception:
         missing.append("ddgs")
@@ -645,7 +641,13 @@ def rasterize_if_needed(image_path: Path) -> Path:
     if image_path.suffix.lower() != ".svg":
         return image_path
 
-    import cairosvg
+    try:
+        import cairosvg
+    except Exception as exc:
+        raise RuntimeError(
+            "SVG images require the optional CairoSVG/native Cairo stack. "
+            "Try another candidate, or install CairoSVG with its platform Cairo dependency."
+        ) from exc
 
     raster_path = image_path.with_suffix(".png")
     cairosvg.svg2png(url=str(image_path), write_to=str(raster_path), output_width=1000, output_height=1000)
