@@ -43,6 +43,10 @@ STOP_QUERY_WORDS = {
 }
 
 
+def project_root() -> Path:
+    return Path(__file__).resolve().parents[1]
+
+
 def ensure_runtime_imports():
     missing: list[str] = []
     try:
@@ -94,28 +98,52 @@ def fetch_wikimedia_image(prompt: str, out_dir: Path) -> Path:
     session = requests.Session()
     session.headers.update({"User-Agent": "sts2-drawbot/1.0"})
 
+    candidates = collect_search_candidates(session, prompt)
+
+    if not candidates:
+        raise RuntimeError(f"No downloadable web image found for {prompt!r}. Try --image or --url instead.")
+
+    downloaded = download_ranked_candidates(session, prompt, candidates, out_dir, max_downloads=8, max_candidates=40)
+    if downloaded:
+        _, target, title, mime, image_url = downloaded[0]
+        print(f"Selected: {title}")
+        print(f"Mime: {mime}")
+        print(f"Source: {image_url}")
+        return target
+
+    raise RuntimeError(f"Could not download any search result for {prompt!r}.")
+
+
+def collect_search_candidates(session, prompt: str) -> list[tuple[int, str, str, str]]:
     base_query = prompt.strip()
     terms = prompt_terms(base_query)
     candidates = search_openverse_images(session, base_query, terms)
     candidates.extend(search_ddg_images(base_query, terms))
     candidates.extend(search_google_custom_images(session, base_query, terms))
     candidates.extend(search_commons_images(session, base_query, terms))
-
-    if not candidates:
-        raise RuntimeError(f"No downloadable web image found for {prompt!r}. Try --image or --url instead.")
-
     candidates.sort(reverse=True, key=lambda c: c[0])
+    return candidates
+
+
+def download_ranked_candidates(
+    session,
+    prompt: str,
+    candidates: list[tuple[int, str, str, str]],
+    out_dir: Path,
+    max_downloads: int = 8,
+    max_candidates: int = 40,
+) -> list[tuple[float, Path, str, str, str]]:
     last_error: Exception | None = None
     skipped = 0
     downloaded: list[tuple[float, Path, str, str, str]] = []
-    for candidate_index, (search_score, title, image_url, mime) in enumerate(candidates[:40]):
+    for candidate_index, (search_score, title, image_url, mime) in enumerate(candidates[:max_candidates]):
         try:
             target, content_type = download_candidate_image(session, prompt, image_url, out_dir, candidate_index)
             visual_score = score_downloaded_image(target)
             total_score = search_score + visual_score
             downloaded.append((total_score, target, title, mime or content_type, image_url))
             print(f"Candidate: {title} score={total_score:.1f}")
-            if len(downloaded) >= 8:
+            if len(downloaded) >= max_downloads:
                 break
         except Exception as exc:
             skipped += 1
@@ -124,11 +152,7 @@ def fetch_wikimedia_image(prompt: str, out_dir: Path) -> Path:
 
     if downloaded:
         downloaded.sort(reverse=True, key=lambda c: c[0])
-        _, target, title, mime, image_url = downloaded[0]
-        print(f"Selected: {title}")
-        print(f"Mime: {mime}")
-        print(f"Source: {image_url}")
-        return target
+        return downloaded
 
     raise RuntimeError(f"Could not download any search result for {prompt!r} after skipping {skipped} blocked results: {last_error}")
 

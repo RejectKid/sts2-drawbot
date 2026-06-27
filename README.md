@@ -36,6 +36,23 @@ cd E:\projects\sts2-drawbot
 
 This writes a preview image to `previews\` and does not move the mouse.
 
+## GUI
+
+For candidate browsing and easier previewing, launch the desktop UI:
+
+```powershell
+.\run-gui.ps1
+```
+
+The GUI lets you:
+
+- search from a prompt
+- inspect downloaded candidates
+- compare the source image and sketch preview side by side
+- open a local image
+- choose trace mode
+- draw the selected preview into Slay the Spire 2
+
 ## Draw
 
 Open the Slay the Spire 2 map drawing UI first, then run:
