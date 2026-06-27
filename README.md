@@ -157,8 +157,8 @@ Without those keys, Openverse, DuckDuckGo Images, and Wikimedia Commons are stil
 Releases are generated automatically from version tags, matching the workflow style used by `RejectKid/copy-pasta`:
 
 ```powershell
-git tag v0.2.0
-git push origin v0.2.0
+git tag 0.3.0
+git push origin 0.3.0
 ```
 
 The release workflow builds ZIP packages for:
