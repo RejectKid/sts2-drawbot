@@ -4,6 +4,7 @@ import argparse
 import dataclasses
 import json
 import os
+import platform
 import re
 import sys
 import time
@@ -47,28 +48,20 @@ def project_root() -> Path:
     return Path(__file__).resolve().parents[1]
 
 
-def ensure_runtime_imports():
+def is_windows() -> bool:
+    return platform.system() == "Windows"
+
+
+def ensure_runtime_imports(include_automation: bool = False):
     missing: list[str] = []
     try:
         import PIL  # noqa: F401
     except Exception:
         missing.append("pillow")
     try:
-        import pyautogui  # noqa: F401
-    except Exception:
-        missing.append("pyautogui")
-    try:
         import requests  # noqa: F401
     except Exception:
         missing.append("requests")
-    try:
-        import win32gui  # noqa: F401
-    except Exception:
-        missing.append("pywin32")
-    try:
-        import psutil  # noqa: F401
-    except Exception:
-        missing.append("psutil")
     try:
         import cairosvg  # noqa: F401
     except Exception:
@@ -77,10 +70,24 @@ def ensure_runtime_imports():
         import ddgs  # noqa: F401
     except Exception:
         missing.append("ddgs")
+    if include_automation:
+        try:
+            import pyautogui  # noqa: F401
+        except Exception:
+            missing.append("pyautogui")
+        if is_windows():
+            try:
+                import win32gui  # noqa: F401
+            except Exception:
+                missing.append("pywin32")
+            try:
+                import psutil  # noqa: F401
+            except Exception:
+                missing.append("psutil")
 
     if missing:
         print("Missing dependencies:", ", ".join(missing), file=sys.stderr)
-        print("Run install.ps1 from E:\\projects\\sts2-drawbot first.", file=sys.stderr)
+        print("Run the install command for your platform first.", file=sys.stderr)
         raise SystemExit(2)
 
 
@@ -655,6 +662,8 @@ def parse_area(value: str) -> Rect:
 
 
 def find_game_window(process_name: str, title_part: str) -> Rect:
+    if not is_windows():
+        raise RuntimeError("Slay the Spire 2 window targeting is currently supported on Windows only.")
     import psutil
     import win32gui
     import win32process
@@ -1364,7 +1373,7 @@ def draw_strokes_win32(
 
 
 def print_mouse_pos() -> None:
-    ensure_runtime_imports()
+    ensure_runtime_imports(include_automation=True)
     import pyautogui
 
     print("Move the mouse where you want to measure. Press Ctrl+C to stop.")
@@ -1432,7 +1441,9 @@ def main() -> int:
     if not args.image and not args.prompt and not args.url:
         parser.error('Use --prompt "what to draw". Add --draw when you want to draw in-game.')
 
-    ensure_runtime_imports()
+    ensure_runtime_imports(include_automation=args.draw)
+    if args.draw and not is_windows():
+        parser.error("--draw is currently supported on Windows only. Preview/search still work cross-platform.")
 
     root = Path(__file__).resolve().parents[1]
     previews_dir = root / "previews"

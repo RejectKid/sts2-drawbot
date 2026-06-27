@@ -17,15 +17,26 @@ It is built for quick in-game doodles: preview first, then draw only when you ad
 
 ## Requirements
 
-- Windows
 - Python 3.11 or newer
-- Slay the Spire 2 running in a normal window
+- Tkinter support in your Python install
+- Windows for drawing directly into Slay the Spire 2
+
+The GUI search and preview workflow is cross-platform. The game-window targeting and right-click drawing automation are currently Windows-only.
 
 ## Install
+
+Windows:
 
 ```powershell
 cd E:\projects\sts2-drawbot
 .\install.ps1
+```
+
+macOS/Linux:
+
+```sh
+cd sts2-drawbot
+./install.sh
 ```
 
 ## Preview
@@ -40,8 +51,16 @@ This writes a preview image to `previews\` and does not move the mouse.
 
 For candidate browsing and easier previewing, launch the desktop UI:
 
+Windows:
+
 ```powershell
 .\run-gui.ps1
+```
+
+macOS/Linux:
+
+```sh
+./run-gui.sh
 ```
 
 The GUI lets you:
@@ -53,12 +72,22 @@ The GUI lets you:
 - choose trace mode
 - draw the selected preview into Slay the Spire 2
 
+On non-Windows systems, the Draw button is disabled and the GUI acts as a candidate/preview workbench.
+
 ## Draw
 
 Open the Slay the Spire 2 map drawing UI first, then run:
 
+Windows:
+
 ```powershell
 .\run.ps1 --prompt "simple poop emoji" --draw
+```
+
+macOS/Linux can use the CLI for preview/search:
+
+```sh
+./run.sh --prompt "simple poop emoji"
 ```
 
 When the countdown starts, move your mouse to where the first line should begin. The tool scales the full drawing into the safe map-paper area; if the mouse anchor would push part of the drawing off the paper, it clamps the drawing back inside the safe area.

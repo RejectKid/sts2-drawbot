@@ -45,6 +45,7 @@ class DrawbotApp(tk.Tk):
         self.selected: Candidate | None = None
         self.source_photo = None
         self.preview_photo = None
+        self.can_draw = bot.is_windows()
 
         self.prompt_var = tk.StringVar(value="simple star")
         self.status_var = tk.StringVar(value="Type a prompt, then search or preview.")
@@ -142,12 +143,19 @@ class DrawbotApp(tk.Tk):
         draw_box = ttk.Frame(sidebar)
         draw_box.grid(row=4, column=0, sticky="ew", pady=(12, 0))
         draw_box.columnconfigure(0, weight=1)
-        ttk.Button(draw_box, text="Draw Selected", command=self.draw_selected, style="Action.TButton").grid(
+        self.draw_button = ttk.Button(draw_box, text="Draw Selected", command=self.draw_selected, style="Action.TButton")
+        self.draw_button.grid(
             row=0, column=0, sticky="ew"
         )
+        if not self.can_draw:
+            self.draw_button.configure(state=tk.DISABLED)
         ttk.Label(
             draw_box,
-            text="During countdown, move your mouse to the first line. Press Esc to stop.",
+            text=(
+                "During countdown, move your mouse to the first line. Press Esc to stop."
+                if self.can_draw
+                else "Search and preview work cross-platform. Drawing into Slay the Spire 2 is Windows-only."
+            ),
             style="Subtle.TLabel",
             wraplength=300,
         ).grid(row=1, column=0, sticky="ew", pady=(8, 0))
@@ -265,6 +273,12 @@ class DrawbotApp(tk.Tk):
             self.events.put(("error", str(exc)))
 
     def draw_selected(self) -> None:
+        if not self.can_draw:
+            messagebox.showinfo(
+                "Windows required",
+                "The GUI can search and preview on this platform, but drawing into Slay the Spire 2 is currently Windows-only.",
+            )
+            return
         candidate = self.selected
         if not candidate:
             messagebox.showinfo("Select candidate", "Select and preview a candidate first.")
