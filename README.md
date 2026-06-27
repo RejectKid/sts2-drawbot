@@ -74,6 +74,16 @@ The GUI lets you:
 
 On non-Windows systems, the Draw button is disabled and the GUI acts as a candidate/preview workbench.
 
+### Screenshots
+
+Initial GUI:
+
+![STS2 Drawbot initial GUI](docs/screenshots/gui-initial.png)
+
+Candidate selected with sketch preview:
+
+![STS2 Drawbot preview GUI](docs/screenshots/gui-star-preview.png)
+
 ## Draw
 
 Open the Slay the Spire 2 map drawing UI first, then run:
