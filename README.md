@@ -65,6 +65,8 @@ macOS/Linux:
 ./run-gui.sh
 ```
 
+The GUI launchers detach from the terminal, so closing the terminal window will not close the UI.
+
 The GUI lets you:
 
 - search from a prompt
