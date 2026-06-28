@@ -49,6 +49,7 @@ class DrawbotApp(tk.Tk):
         self.can_draw = bot.is_windows()
 
         self.prompt_var = tk.StringVar(value="simple star")
+        self.url_var = tk.StringVar(value="")
         self.status_var = tk.StringVar(value="Type a prompt, then search or preview.")
         self.mode_var = tk.StringVar(value="auto")
         self.no_builtins_var = tk.BooleanVar(value=False)
@@ -91,7 +92,7 @@ class DrawbotApp(tk.Tk):
 
         sidebar = ttk.Frame(root, width=330)
         sidebar.grid(row=1, column=0, sticky="nsw", padx=(0, 12))
-        sidebar.rowconfigure(3, weight=1)
+        sidebar.rowconfigure(4, weight=1)
 
         prompt_box = ttk.LabelFrame(sidebar, text="Prompt", padding=10)
         prompt_box.grid(row=0, column=0, sticky="ew")
@@ -110,8 +111,18 @@ class DrawbotApp(tk.Tk):
             row=0, column=1, sticky="ew"
         )
 
+        url_box = ttk.LabelFrame(sidebar, text="Direct URL", padding=10)
+        url_box.grid(row=1, column=0, sticky="ew", pady=(12, 0))
+        url_box.columnconfigure(0, weight=1)
+        url_entry = ttk.Entry(url_box, textvariable=self.url_var)
+        url_entry.grid(row=0, column=0, sticky="ew", pady=(0, 8))
+        url_entry.bind("<Return>", lambda _event: self.load_url())
+        ttk.Button(url_box, text="Load URL", command=self.load_url, style="Action.TButton").grid(
+            row=1, column=0, sticky="ew"
+        )
+
         options = ttk.LabelFrame(sidebar, text="Defaults", padding=10)
-        options.grid(row=1, column=0, sticky="ew", pady=(12, 0))
+        options.grid(row=2, column=0, sticky="ew", pady=(12, 0))
         options.columnconfigure(1, weight=1)
         ttk.Label(options, text="Trace").grid(row=0, column=0, sticky="w")
         ttk.Combobox(
@@ -129,9 +140,9 @@ class DrawbotApp(tk.Tk):
             row=2, column=0, columnspan=2, sticky="w", pady=(8, 0)
         )
 
-        ttk.Label(sidebar, text="Candidates").grid(row=2, column=0, sticky="w", pady=(14, 4))
+        ttk.Label(sidebar, text="Candidates").grid(row=3, column=0, sticky="w", pady=(14, 4))
         list_frame = ttk.Frame(sidebar)
-        list_frame.grid(row=3, column=0, sticky="nsew")
+        list_frame.grid(row=4, column=0, sticky="nsew")
         list_frame.rowconfigure(0, weight=1)
         list_frame.columnconfigure(0, weight=1)
         self.candidate_list = tk.Listbox(list_frame, height=18, activestyle="dotbox")
@@ -142,7 +153,7 @@ class DrawbotApp(tk.Tk):
         self.candidate_list.configure(yscrollcommand=scrollbar.set)
 
         draw_box = ttk.Frame(sidebar)
-        draw_box.grid(row=4, column=0, sticky="ew", pady=(12, 0))
+        draw_box.grid(row=5, column=0, sticky="ew", pady=(12, 0))
         draw_box.columnconfigure(0, weight=1)
         self.draw_button = ttk.Button(draw_box, text="Draw Selected", command=self.draw_selected, style="Action.TButton")
         self.draw_button.grid(
@@ -193,6 +204,36 @@ class DrawbotApp(tk.Tk):
         self.candidate_list.delete(0, tk.END)
         self._clear_images()
         threading.Thread(target=self._search_worker, args=(prompt, generation), daemon=True).start()
+
+    def load_url(self) -> None:
+        url = self.url_var.get().strip()
+        if not url:
+            messagebox.showinfo("URL needed", "Paste a direct image URL first.")
+            return
+        self.search_generation += 1
+        generation = self.search_generation
+        self._set_busy("Downloading URL...")
+        self.candidates = []
+        self.selected = None
+        self.candidate_list.delete(0, tk.END)
+        self._clear_images()
+        threading.Thread(target=self._url_worker, args=(url, generation), daemon=True).start()
+
+    def _url_worker(self, url: str, generation: int) -> None:
+        try:
+            path = bot.download_image_url(url, self.downloads_dir)
+            score = bot.score_downloaded_image(path)
+            candidate = Candidate(
+                title=f"URL: {path.name}",
+                path=path,
+                source_url=url,
+                score=score,
+                mime=path.suffix.lstrip(".").lower(),
+            )
+            self.events.put(("candidate", (generation, candidate)))
+            self.events.put(("search_done", (generation, 1)))
+        except Exception as exc:
+            self.events.put(("error", (generation, str(exc))))
 
     def _search_worker(self, prompt: str, generation: int) -> None:
         try:
