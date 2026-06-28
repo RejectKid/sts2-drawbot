@@ -68,6 +68,7 @@ macOS/Linux:
 The GUI lets you:
 
 - search from a prompt
+- load a direct image URL
 - inspect downloaded candidates as they load
 - compare the source image and sketch preview side by side
 - open a local image
@@ -162,8 +163,8 @@ Without those keys, Openverse, DuckDuckGo Images, and Wikimedia Commons are stil
 Releases are generated automatically from version tags, matching the workflow style used by `RejectKid/copy-pasta`:
 
 ```powershell
-git tag 0.4.0
-git push origin 0.4.0
+git tag v1.0.0
+git push origin v1.0.0
 ```
 
 The release workflow builds ZIP packages for:
