@@ -68,7 +68,7 @@ macOS/Linux:
 The GUI lets you:
 
 - search from a prompt
-- inspect downloaded candidates
+- inspect downloaded candidates as they load
 - compare the source image and sketch preview side by side
 - open a local image
 - choose trace mode

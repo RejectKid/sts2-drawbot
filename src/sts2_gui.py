@@ -43,6 +43,7 @@ class DrawbotApp(tk.Tk):
         self.events: queue.Queue[tuple[str, object]] = queue.Queue()
         self.candidates: list[Candidate] = []
         self.selected: Candidate | None = None
+        self.search_generation = 0
         self.source_photo = None
         self.preview_photo = None
         self.can_draw = bot.is_windows()
@@ -184,54 +185,91 @@ class DrawbotApp(tk.Tk):
         if not prompt:
             messagebox.showinfo("Prompt needed", "Type what you want to draw first.")
             return
+        self.search_generation += 1
+        generation = self.search_generation
         self._set_busy("Searching candidates...")
         self.candidates = []
         self.selected = None
         self.candidate_list.delete(0, tk.END)
         self._clear_images()
-        threading.Thread(target=self._search_worker, args=(prompt,), daemon=True).start()
+        threading.Thread(target=self._search_worker, args=(prompt, generation), daemon=True).start()
 
-    def _search_worker(self, prompt: str) -> None:
+    def _search_worker(self, prompt: str, generation: int) -> None:
         try:
-            results: list[Candidate] = []
+            found = 0
             if not self.no_builtins_var.get():
                 built_in = bot.generate_builtin_prompt_image(prompt, self.downloads_dir)
                 if built_in:
-                    results.append(
-                        Candidate(
-                            title=f"Built-in: {prompt}",
-                            path=built_in,
-                            source_url="built-in",
-                            score=9999,
-                            mime="image/png",
-                            built_in=True,
+                    self.events.put(
+                        (
+                            "candidate",
+                            (
+                                generation,
+                                Candidate(
+                                    title=f"Built-in: {prompt}",
+                                    path=built_in,
+                                    source_url="built-in",
+                                    score=9999,
+                                    mime="image/png",
+                                    built_in=True,
+                                ),
+                            ),
                         )
                     )
+                    found += 1
 
-            if results and not self.no_builtins_var.get():
-                self.events.put(("status", "Built-in candidate ready. Searching web candidates..."))
+            if found and not self.no_builtins_var.get():
+                self.events.put(("status", (generation, "Built-in candidate ready. Searching web candidates...")))
 
             session = requests.Session()
             session.headers.update({"User-Agent": "sts2-drawbot/1.0"})
-            try:
-                candidates = bot.collect_search_candidates(session, prompt)
-                downloaded = bot.download_ranked_candidates(
-                    session,
-                    prompt,
-                    candidates,
-                    self.downloads_dir,
-                    max_downloads=10,
-                    max_candidates=50,
-                )
-                for score, path, title, mime, url in downloaded:
-                    results.append(Candidate(title=title, path=path, source_url=url, score=score, mime=mime))
-            except Exception:
-                if not results:
-                    raise
+            candidates = bot.collect_search_candidates(session, prompt)
+            skipped = 0
+            last_error: Exception | None = None
+            for candidate_index, (search_score, title, image_url, mime) in enumerate(candidates[:50]):
+                if found >= 10:
+                    break
+                try:
+                    path, content_type = bot.download_candidate_image(
+                        session,
+                        prompt,
+                        image_url,
+                        self.downloads_dir,
+                        candidate_index,
+                    )
+                    visual_score = bot.score_downloaded_image(path)
+                    total_score = search_score + visual_score
+                    self.events.put(
+                        (
+                            "candidate",
+                            (
+                                generation,
+                                Candidate(
+                                    title=title,
+                                    path=path,
+                                    source_url=image_url,
+                                    score=total_score,
+                                    mime=mime or content_type,
+                                ),
+                            ),
+                        )
+                    )
+                    found += 1
+                    self.events.put(("status", (generation, f"Loaded {found} candidate(s)...")))
+                    print(f"Candidate: {title} score={total_score:.1f}")
+                except Exception as exc:
+                    skipped += 1
+                    last_error = exc
+                    continue
 
-            self.events.put(("candidates", results))
+            if found:
+                self.events.put(("search_done", (generation, found)))
+            else:
+                raise RuntimeError(
+                    f"Could not download any search result for {prompt!r} after skipping {skipped} blocked results: {last_error}"
+                )
         except Exception as exc:
-            self.events.put(("error", str(exc)))
+            self.events.put(("error", (generation, str(exc))))
 
     def preview_selected(self) -> None:
         candidate = self.selected
@@ -363,6 +401,28 @@ class DrawbotApp(tk.Tk):
                 label = f"built-in  {candidate.title}"
             self.candidate_list.insert(tk.END, label[:110])
 
+    def _add_candidate(self, candidate: Candidate) -> None:
+        selected_path = self.selected.path if self.selected else None
+        self.candidates.append(candidate)
+        self.candidates.sort(key=lambda item: item.score, reverse=True)
+        self._populate_candidates()
+
+        if selected_path:
+            for index, item in enumerate(self.candidates):
+                if item.path == selected_path:
+                    self.candidate_list.selection_clear(0, tk.END)
+                    self.candidate_list.selection_set(index)
+                    self.candidate_list.see(index)
+                    self.selected = item
+                    return
+
+        self.candidate_list.selection_clear(0, tk.END)
+        self.candidate_list.selection_set(0)
+        self.candidate_list.see(0)
+        self._on_candidate_select()
+        if len(self.candidates) == 1:
+            self.preview_selected()
+
     def _show_image(self, path: Path, widget: tk.Label, slot: str) -> None:
         try:
             img_path = bot.rasterize_if_needed(path)
@@ -399,24 +459,39 @@ class DrawbotApp(tk.Tk):
         try:
             while True:
                 event, payload = self.events.get_nowait()
-                if event == "candidates":
-                    self.candidates = payload  # type: ignore[assignment]
-                    self._populate_candidates()
-                    self.progress_var.set("")
-                    self.status_var.set(f"Found {len(self.candidates)} candidate(s).")
-                    if self.candidates:
-                        self.candidate_list.selection_set(0)
-                        self._on_candidate_select()
-                        self.preview_selected()
+                if event == "candidate":
+                    generation, candidate = payload  # type: ignore[misc]
+                    if generation != self.search_generation:
+                        continue
+                    self._add_candidate(candidate)
+                    self.progress_var.set(f"{len(self.candidates)} loaded")
+                    self.status_var.set(f"Loaded candidate: {candidate.title}")
                 elif event == "preview":
                     candidate = payload  # type: ignore[assignment]
                     self.progress_var.set("")
                     self.status_var.set(f"Preview ready: {candidate.title}")
                     self._show_image(candidate.preview_path, self.preview_canvas, "preview")
-                elif event == "status":
+                elif event == "search_done":
+                    generation, count = payload  # type: ignore[misc]
+                    if generation != self.search_generation:
+                        continue
                     self.progress_var.set("")
-                    self.status_var.set(str(payload))
+                    self.status_var.set(f"Found {count} candidate(s).")
+                elif event == "status":
+                    if isinstance(payload, tuple):
+                        generation, text = payload
+                        if generation != self.search_generation:
+                            continue
+                        self.status_var.set(str(text))
+                    else:
+                        self.progress_var.set("")
+                        self.status_var.set(str(payload))
                 elif event == "error":
+                    if isinstance(payload, tuple):
+                        generation, text = payload
+                        if generation != self.search_generation:
+                            continue
+                        payload = text
                     self.progress_var.set("")
                     self.status_var.set("Error")
                     messagebox.showerror("STS2 Drawbot", str(payload))
