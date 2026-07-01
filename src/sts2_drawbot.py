@@ -1376,7 +1376,27 @@ def map_stroke(stroke: Stroke, transform: DrawTransform) -> list[Point]:
         if last is None or current != last:
             mapped.append(current)
             last = current
+    if len(mapped) < 2 and len(stroke) >= 2:
+        recovered = collapsed_stroke_mark(stroke, transform)
+        if recovered:
+            return recovered
     return mapped
+
+
+def collapsed_stroke_mark(stroke: Stroke, transform: DrawTransform) -> list[Point] | None:
+    start = stroke[0]
+    end = stroke[-1]
+    dx = end.x - start.x
+    dy = end.y - start.y
+    if dx == 0 and dy == 0:
+        return None
+
+    origin = map_point(start, transform)
+    if abs(dx) >= abs(dy):
+        step = Point(1 if dx >= 0 else -1, 0)
+    else:
+        step = Point(0, 1 if dy >= 0 else -1)
+    return [origin, Point(origin.x + step.x, origin.y + step.y)]
 
 
 def draw_strokes(
@@ -1576,7 +1596,7 @@ def build_parser(show_advanced: bool = False) -> argparse.ArgumentParser:
     parser.add_argument("--abort-key", default="esc", help=option_help("Hotkey to stop drawing: esc, f8, f9, f10, f12, or pause.", show_advanced))
     parser.add_argument("--center-in-window", action="store_true", help=option_help("Use the old behavior: center the drawing in the target canvas instead of starting at the mouse.", show_advanced))
     parser.add_argument("--fit-padding", type=int, default=35, help=option_help("Pixels to keep clear inside the safe drawing area.", show_advanced))
-    parser.add_argument("--draw-scale", type=float, default=0.70, help=option_help("Fraction of the safe canvas to fill while drawing, from 0.1 to 1.0.", show_advanced))
+    parser.add_argument("--draw-scale", type=float, default=0.50, help=option_help("Fraction of the safe canvas to fill while drawing, from 0.1 to 1.0.", show_advanced))
     parser.add_argument("--countdown", type=int, default=5, help=option_help("Countdown seconds before drawing.", show_advanced))
     return parser
 
