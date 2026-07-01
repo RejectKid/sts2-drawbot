@@ -397,6 +397,7 @@ class DrawbotApp(tk.Tk):
                 abort_key="esc",
                 anchor_target=anchor,
                 fit_padding=35,
+                draw_scale=0.55,
             )
             self.events.put(("status", "Done drawing."))
         except KeyboardInterrupt:

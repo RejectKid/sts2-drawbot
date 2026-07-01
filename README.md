@@ -143,6 +143,7 @@ Useful advanced options:
 
 - `--area X,Y,W,H`: manually set the safe drawing rectangle
 - `--fit-padding N`: keep more or less space from the safe-area edges
+- `--draw-scale 0.55`: shrink the drawing inside the safe area
 - `--abort-key f9`: change the stop hotkey
 - `--input-backend pyautogui`: force the cross-platform mouse backend
 - `--center-in-window`: center the drawing in the target canvas instead of starting at the mouse
@@ -165,8 +166,8 @@ Without those keys, Openverse, DuckDuckGo Images, and Wikimedia Commons are stil
 Releases are generated automatically from version tags, matching the workflow style used by `RejectKid/copy-pasta`:
 
 ```powershell
-git tag v1.0.0
-git push origin v1.0.0
+git tag v1.1.0
+git push origin v1.1.0
 ```
 
 The release workflow builds ZIP packages for:

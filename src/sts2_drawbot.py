@@ -1334,10 +1334,12 @@ def build_draw_transform(
     canvas: Rect,
     anchor_target: Point | None,
     fit_padding: int,
+    draw_scale: float,
 ) -> DrawTransform:
     bounds = stroke_bounds(strokes)
     fit = inset_rect(canvas, fit_padding)
-    scale = min(fit.w / bounds.w, fit.h / bounds.h)
+    draw_scale = clamp(draw_scale, 0.1, 1.0)
+    scale = min(fit.w / bounds.w, fit.h / bounds.h) * draw_scale
 
     if anchor_target:
         anchor_source = first_draw_point(strokes) or Point(bounds.x, bounds.y)
@@ -1355,15 +1357,49 @@ def build_draw_transform(
     offset_y = clamp(offset_y, min_offset_y, max_offset_y)
 
     print(f"Fit area: {fit.x},{fit.y} {fit.w}x{fit.h}")
-    print(f"Drawing bounds: {bounds.w}x{bounds.h}, scale: {scale:.2f}")
+    print(f"Drawing bounds: {bounds.w}x{bounds.h}, scale: {scale:.2f} ({draw_scale:.0%} fit)")
     return DrawTransform(scale=scale, offset_x=offset_x, offset_y=offset_y)
 
 
 def map_point(point: Point, transform: DrawTransform) -> Point:
     return Point(
-        int(transform.offset_x + point.x * transform.scale),
-        int(transform.offset_y + point.y * transform.scale),
+        int(round(transform.offset_x + point.x * transform.scale)),
+        int(round(transform.offset_y + point.y * transform.scale)),
     )
+
+
+def map_stroke(stroke: Stroke, transform: DrawTransform) -> list[Point]:
+    mapped: list[Point] = []
+    last: Point | None = None
+    for point in stroke:
+        current = map_point(point, transform)
+        if last is None or current != last:
+            mapped.append(current)
+            last = current
+    if len(mapped) < 2 and len(stroke) >= 2:
+        recovered = collapsed_stroke_mark(stroke, transform)
+        if recovered:
+            return recovered
+    return mapped
+
+
+def collapsed_stroke_mark(stroke: Stroke, transform: DrawTransform) -> list[Point] | None:
+    start = stroke[0]
+    end = stroke[-1]
+    dx = end.x - start.x
+    dy = end.y - start.y
+    if dx == 0 and dy == 0:
+        return None
+
+    origin = map_point(start, transform)
+    step_x = 0 if dx == 0 else (1 if dx > 0 else -1)
+    step_y = 0 if dy == 0 else (1 if dy > 0 else -1)
+    if abs(dx) > abs(dy) * 2:
+        step_y = 0
+    elif abs(dy) > abs(dx) * 2:
+        step_x = 0
+    step = Point(step_x, step_y)
+    return [origin, Point(origin.x + step.x, origin.y + step.y)]
 
 
 def draw_strokes(
@@ -1376,10 +1412,11 @@ def draw_strokes(
     abort_key: str,
     anchor_target: Point | None,
     fit_padding: int,
+    draw_scale: float,
 ) -> None:
     abort_check = make_abort_checker(abort_key)
     stroke_list = list(strokes)
-    transform = build_draw_transform(stroke_list, canvas, anchor_target, fit_padding)
+    transform = build_draw_transform(stroke_list, canvas, anchor_target, fit_padding, draw_scale)
     backend = resolve_input_backend(backend)
     if backend == "win32":
         draw_strokes_win32(
@@ -1457,7 +1494,9 @@ def draw_strokes_pyautogui(
         abort_check()
         if len(stroke) < 2:
             continue
-        mapped = [map_point(point, transform) for point in stroke]
+        mapped = map_stroke(stroke, transform)
+        if len(mapped) < 2:
+            continue
         pyautogui.moveTo(mapped[0].x, mapped[0].y, duration=0)
         pyautogui.mouseDown(button="right")
         try:
@@ -1488,7 +1527,9 @@ def draw_strokes_win32(
         abort_check()
         if len(stroke) < 2:
             continue
-        mapped = [map_point(point, transform) for point in stroke]
+        mapped = map_stroke(stroke, transform)
+        if len(mapped) < 2:
+            continue
         if fail_safe_check:
             fail_safe_check()
         win32api.SetCursorPos((mapped[0].x, mapped[0].y))
@@ -1558,6 +1599,7 @@ def build_parser(show_advanced: bool = False) -> argparse.ArgumentParser:
     parser.add_argument("--abort-key", default="esc", help=option_help("Hotkey to stop drawing: esc, f8, f9, f10, f12, or pause.", show_advanced))
     parser.add_argument("--center-in-window", action="store_true", help=option_help("Use the old behavior: center the drawing in the target canvas instead of starting at the mouse.", show_advanced))
     parser.add_argument("--fit-padding", type=int, default=35, help=option_help("Pixels to keep clear inside the safe drawing area.", show_advanced))
+    parser.add_argument("--draw-scale", type=float, default=0.55, help=option_help("Fraction of the safe canvas to fill while drawing, from 0.1 to 1.0.", show_advanced))
     parser.add_argument("--countdown", type=int, default=5, help=option_help("Countdown seconds before drawing.", show_advanced))
     return parser
 
@@ -1672,6 +1714,7 @@ def main() -> int:
         abort_key=args.abort_key,
         anchor_target=anchor_target,
         fit_padding=args.fit_padding,
+        draw_scale=args.draw_scale,
     )
     print("Done.")
     return 0
