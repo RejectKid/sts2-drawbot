@@ -1363,9 +1363,20 @@ def build_draw_transform(
 
 def map_point(point: Point, transform: DrawTransform) -> Point:
     return Point(
-        int(transform.offset_x + point.x * transform.scale),
-        int(transform.offset_y + point.y * transform.scale),
+        int(round(transform.offset_x + point.x * transform.scale)),
+        int(round(transform.offset_y + point.y * transform.scale)),
     )
+
+
+def map_stroke(stroke: Stroke, transform: DrawTransform) -> list[Point]:
+    mapped: list[Point] = []
+    last: Point | None = None
+    for point in stroke:
+        current = map_point(point, transform)
+        if last is None or current != last:
+            mapped.append(current)
+            last = current
+    return mapped
 
 
 def draw_strokes(
@@ -1460,7 +1471,9 @@ def draw_strokes_pyautogui(
         abort_check()
         if len(stroke) < 2:
             continue
-        mapped = [map_point(point, transform) for point in stroke]
+        mapped = map_stroke(stroke, transform)
+        if len(mapped) < 2:
+            continue
         pyautogui.moveTo(mapped[0].x, mapped[0].y, duration=0)
         pyautogui.mouseDown(button="right")
         try:
@@ -1491,7 +1504,9 @@ def draw_strokes_win32(
         abort_check()
         if len(stroke) < 2:
             continue
-        mapped = [map_point(point, transform) for point in stroke]
+        mapped = map_stroke(stroke, transform)
+        if len(mapped) < 2:
+            continue
         if fail_safe_check:
             fail_safe_check()
         win32api.SetCursorPos((mapped[0].x, mapped[0].y))
