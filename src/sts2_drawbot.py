@@ -1561,7 +1561,7 @@ def build_parser(show_advanced: bool = False) -> argparse.ArgumentParser:
     parser.add_argument("--abort-key", default="esc", help=option_help("Hotkey to stop drawing: esc, f8, f9, f10, f12, or pause.", show_advanced))
     parser.add_argument("--center-in-window", action="store_true", help=option_help("Use the old behavior: center the drawing in the target canvas instead of starting at the mouse.", show_advanced))
     parser.add_argument("--fit-padding", type=int, default=35, help=option_help("Pixels to keep clear inside the safe drawing area.", show_advanced))
-    parser.add_argument("--draw-scale", type=float, default=0.72, help=option_help("Fraction of the safe canvas to fill while drawing, from 0.1 to 1.0.", show_advanced))
+    parser.add_argument("--draw-scale", type=float, default=0.70, help=option_help("Fraction of the safe canvas to fill while drawing, from 0.1 to 1.0.", show_advanced))
     parser.add_argument("--countdown", type=int, default=5, help=option_help("Countdown seconds before drawing.", show_advanced))
     return parser
 
