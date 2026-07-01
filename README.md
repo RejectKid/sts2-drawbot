@@ -143,7 +143,7 @@ Useful advanced options:
 
 - `--area X,Y,W,H`: manually set the safe drawing rectangle
 - `--fit-padding N`: keep more or less space from the safe-area edges
-- `--draw-scale 0.50`: shrink the drawing inside the safe area
+- `--draw-scale 0.55`: shrink the drawing inside the safe area
 - `--abort-key f9`: change the stop hotkey
 - `--input-backend pyautogui`: force the cross-platform mouse backend
 - `--center-in-window`: center the drawing in the target canvas instead of starting at the mouse
